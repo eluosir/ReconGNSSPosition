@@ -1,7 +1,27 @@
 #include "RTK_Structs.h"
-#include <math.h>
 #include <iostream>
-using namespace std;
+////配置文件
+//bool WriteSATODSConfigInfo(const char FName[])
+//{
+//    FILE* cfg;
+//    if (fopen_s(&cfg, FName, "w+") != 0)
+//    {
+//        printf("Cannot open this cfg file!");
+//        return false;
+//    }
+//
+//    fprintf(cfg, "[GNSS RTK Configuration file]\n");
+//
+//
+//
+//    
+//}
+//读取配置文件
+bool ReadSATODSConfigInfo(const char FName[], ROVERCFGINFO& cfg)
+{
+
+    return false;
+}
 //通用时, GPS时和简化儒略日之间的相互转换函数
 void CommonTimeToMJDTime(const COMMONTIME* CT, MJDTIME* MJDT)
 {
@@ -122,11 +142,11 @@ void XYZToBLH(const double xyz[3], double blh[3], const double R, const double F
 }
 void BLHToNEUMat(const double Blh[], double Mat[])//将Blh转换为以Mat为站型心的NEU坐标系，结果给到Mat中。
 {
-    double xyz[3]={0,0,0};
+    double xyz[3]{ 0 };
     double PosBlh[3]{ 0 };
     BLHToXYZ(Blh, xyz, R_WGS84, F_WGS84);
     XYZToBLH(Mat, PosBlh, R_WGS84, F_WGS84);
-    double Dx[3] = { 0,0,0 };
+    double Dx[3]{ 0 };
     Dx[0] = xyz[0] - Mat[0];
     Dx[1] = xyz[1] - Mat[1];
     Dx[2] = xyz[2] - Mat[2];
@@ -147,8 +167,12 @@ void CompSatElAz(const double Xr[], const double Xs[], double* Elev, double* Azi
     r = sqrt(NEUMat[0] * NEUMat[0] + NEUMat[1] * NEUMat[1] + NEUMat[2] * NEUMat[2]);
     *Elev = asin(NEUMat[2] / r);
     *Azim = atan2(*Elev, NEUMat[0]);
-    double P=*Elev* Deg;
+    double P=*Elev* Deg;//test
 }//卫星高度角方位角计算
+void Comp_dEnu(const double X0[], const double Xr[], double dNeu[])
+{
+    
+}
 
 //矩阵运算
 bool matrix_add(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[], double c[])
@@ -433,6 +457,35 @@ unsigned int crc32(const unsigned char* buff, int len)
     }
     return crc;
 }
+int decode(EPOCHOBS* Epoch, FILE* stream, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem)//解码小函数 0=无观测值；1=有观测值；-1=读到文件尾
+{
+    int Status = 0;
+    LenRead = fread_s(Buff + LenRem, MAXNOVDLEN, sizeof(unsigned char), MAXNOVDLEN - (LenRem), stream);
+    if (LenRead < (MAXNOVDLEN - LenRem))
+    {
+        printf("finished!\n");
+        fclose(stream);
+        return -1;//读到文件尾
+    }
+    // 调用解码模块，得到观测值和星历
+    Status = DecodeNovOem7Dat(Buff, LenRem, Epoch, Raw->GpsEph, Raw->BdsEph);
+    return Status;
+}
+int decode(EPOCHOBS* Epoch, SOCKET& Sock, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem)
+{
+    int Status = 0;
+    LenRead = recv(Sock, (char*)Buff + LenRem, MAXNOVDLEN - LenRem, 0);
+    if (LenRead < 0)
+    {
+        printf("Socket no data!\n");
+        CloseSocket(Sock);
+        return -1;
+    }
+    //解码
+    LenRem += LenRead;
+    Status = DecodeNovOem7Soc(Buff, LenRem, Epoch, Raw->GpsEph, Raw->BdsEph);
+    return Status;
+}
 int decode_rangeb_oem7(unsigned char* buff, EPOCHOBS* obs)
 {
     int n, i, j, f;
@@ -630,7 +683,55 @@ int DecodeNovOem7Dat(unsigned char Buff[], int& Len, EPOCHOBS* obs, GPSEPHREC ge
     }
     return Status;
 }
+int DecodeNovOem7Soc(unsigned char Buff[], int& Len, EPOCHOBS* obs, GPSEPHREC geph[], GPSEPHREC beph[])
+{
+    int i, MsgLen{}, MsgID;
+    int Status = 0;
+    int DecodeLen = Len;
+    // 找AA4412并解码
+    for (i = 0; i < DecodeLen - 2; i = i + MsgLen)
+    {
+        if ((Buff[i] == 0xAA && Buff[i + 1] == 0x44 && Buff[i + 2] == 0x12) == false)
+        {
+            MsgLen = 3;
+            continue;
+        }
+        if ((i + 28) >= DecodeLen) break;
+        MsgID = US2(Buff + i + 4);
+        MsgLen = US2(Buff + i + 8) + 32;
 
+        if ((i + MsgLen) >= DecodeLen) break;
+        unsigned int crc = crc32(Buff + i, MsgLen - 4);
+        switch (MsgID)
+        {
+        case 43:
+            Status = decode_rangeb_oem7(Buff + i, obs);
+            break;
+        case 7:
+            decode_gpsephem(Buff + i, geph);
+            break;
+        case 1696:
+            decode_bdsephem(Buff + i, beph);
+            break;
+            //case 1336:
+               //	DecodeQZSSEph()
+        case 42:
+            //DecodePSRPOS(buff + i, Pos);
+            break;
+        default:
+            break;
+        }
+    }
+
+    //缓冲区内容读取完毕后将剩余未读取内容移至缓冲区头部
+    Len = 0;
+    for (; i < DecodeLen; i++)
+    {
+        Buff[Len] = Buff[i];
+        Len++;
+    }
+    return Status;
+}
 // 广播星历
 bool CompSatClkOff(const int Prn, const GNSSSys Sys, const GPSTIME* t, GPSEPHREC* GPSEph, GPSEPHREC* BDSEph, SATMIDRES* Mid)
 {
@@ -654,7 +755,6 @@ bool CompSatClkOff(const int Prn, const GNSSSys Sys, const GPSTIME* t, GPSEPHREC
     if (EPH.PRN == 0)
     {
         return false;
-        cout << "Nothing" << endl;
     }
     Mid->SatClkOft = EPH.ClkBias + EPH.ClkDrift*(t->SecOfWeek)+EPH.ClkDriftRate*pow((t->SecOfWeek),2)-EPH.TGD1;
     Mid->SatClkSft = EPH.ClkDrift + 2 * EPH.ClkDriftRate * (t->SecOfWeek);
@@ -820,15 +920,11 @@ bool CompBDSSatPVT(const int Prn, const GPSTIME* t, const GPSEPHREC* Eph, SATMID
                                 0,-sin(-5 * Rad),cos(-5 * Rad) };
         double Rz_matrix[9] = { cos(Omega_BDS * tk),sin(Omega_BDS * tk),0,
                                -sin(Omega_BDS * tk),cos(Omega_BDS * tk),0,
-                               0                ,0               ,1 };
+                                  0                ,0                  ,1 };
         double Result1[9];
         double res[3] = { xk,yk,zk };
         matrix_multiply(3, 3, 3, 3, Rz_matrix, Rx_matrix, Result1);
-        matrix_multiply(3, 3, 3, 1, Result1, res, res);
-        //卫星位置
-        Mid->SatPos[0] = res[0];
-        Mid->SatPos[1] = res[1];
-        Mid->SatPos[2] = res[2];
+        matrix_multiply(3, 3, 3, 1, Result1, res, Mid->SatPos);
     }
     else
     {
@@ -911,7 +1007,7 @@ void ComputeGPSSatOrbitAtSignalTrans(const EPOCHOBS* Epk, GPSEPHREC* GPSEph, GPS
             CompSatElAz(RcvPos, MidRes[i].SatPos, &MidRes[i].Elevation, &MidRes[i].Azimuth);
             XYZToBLH(RcvPos, RcvBLH, R_WGS84, F_WGS84);
             MidRes[i].TropCorr = hopfield(RcvBLH[2], MidRes[i].Elevation);
-            //printf("G%d\nX:%f\tY:%f\tZ:%f\tClk:%fE-5\nVX:%f\tVY:%f\tVZ:%f\tClkd:%fE-12\nPIF:%f\tTrop:%f\tElev:%f\n",
+            //printf("G%d\tX:%f\tY:%f\tZ:%f\tClk:%fE-5\tVX:%f\tVY:%f\tVZ:%f\tClkd:%fE-12\tPIF:%f\tTrop:%f\tElev:%f\n",
             //	Num + 1,
             //	MidRes[i].SatPos[0], MidRes[i].SatPos[1], MidRes[i].SatPos[2], MidRes[i].SatClkOft * 1e5,
             //	MidRes[i].SatVel[0], MidRes[i].SatVel[1], MidRes[i].SatVel[2], MidRes[i].SatClkSft * 1e12,
@@ -932,13 +1028,14 @@ void ComputeGPSSatOrbitAtSignalTrans(const EPOCHOBS* Epk, GPSEPHREC* GPSEph, GPS
             CompSatElAz(RcvPos, MidRes[i].SatPos, &MidRes[i].Elevation, &MidRes[i].Azimuth);
             XYZToBLH(RcvPos, RcvBLH, R_CGS2K, F_CGS2K);
             MidRes[i].TropCorr = hopfield(RcvPos[2], MidRes[i].Elevation);
-            //printf("G%d\nX:%f\tY:%f\tZ:%f\tClk:%fE-5\nVX:%f\tVY:%f\tVZ:%f\tClkd:%fE-12\nPIF:%f\tTrop:%f\tElev:%f\n",
-            //	Num + 1,
-            //	MidRes[i].SatPos[0], MidRes[i].SatPos[1], MidRes[i].SatPos[2], MidRes[i].SatClkOft * 1e5,
-            //	MidRes[i].SatVel[0], MidRes[i].SatVel[1], MidRes[i].SatVel[2], MidRes[i].SatClkSft * 1e12,
-            //	PIF, MidRes[i].TropCorr, MidRes[i].Elevation * Deg);
+            //printf("C%d\tX:%15.5f\tY:%15.5f\tZ:%15.5f\tClk:13.5%E\tVX:%15.5f\tVY:%15.5f\tVZ:%15.5f\tClkd:%15.5E\tPIF:%15.5f\tTrop:%15.5f\tElev:%15.5f\n",
+            //    Num + 1,
+            //    MidRes[i].SatPos[0], MidRes[i].SatPos[1], MidRes[i].SatPos[2], MidRes[i].SatClkOft,
+            //    MidRes[i].SatVel[0], MidRes[i].SatVel[1], MidRes[i].SatVel[2], MidRes[i].SatClkSft,
+            //    PIF, MidRes[i].TropCorr, MidRes[i].Elevation * Deg);
         }
     }
+
 }
 double hopfield(double hgt, double elev)
 {
@@ -965,43 +1062,32 @@ double hopfield(double hgt, double elev)
     d_Trop = K_d / sin((sqrt(pow(elev * Deg, 2) + 6.25)) * Rad) + K_w / sin((sqrt(pow(elev * Deg, 2) + 2.25)* Rad));//高度角单位为角度，计算三角函数时转换为弧度
     return d_Trop;
 }
-int decode(EPOCHOBS* Epoch, FILE* stream, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem)//解码小函数 0=无观测值；1=有观测值；-1=读到文件尾
-{
-    int Status = 0;
-    LenRead = fread_s(Buff + LenRem, MAXNOVDLEN, sizeof(unsigned char), MAXNOVDLEN - (LenRem), stream);
-    if (LenRead < (MAXNOVDLEN - LenRem))
-    {
-        printf("finished!\n");
-        fclose(stream);
-        return -1;//读到文件尾
-    }
-    // 调用解码模块，得到观测值和星历
-    Status = DecodeNovOem7Dat(Buff, LenRem, Epoch, Raw->GpsEph, Raw->BdsEph);
-    return Status;
-}
 
 //SPP & SPV
 void DetectOutlier(EPOCHOBS* Obs)
 {
+    MWGF ComObs[MAXCHANNUM];
+    memset(ComObs, 0, MAXCHANNUM * sizeof(MWGF));
     for (int i = 0; i < Obs->SatNum; i++)
     {
-        double MW, GF;
         double FG1, FG2;
-        MW = GF = FG1 = FG2 = 0.0;
+        FG1 = FG2 = 0.0;
+        int SatIndex = -1;
+        double MW_ave = 0;
         //数据完整性
         if (abs(Obs->SatObs[i].Psr[0]) < 1e-5 || abs(Obs->SatObs[i].Psr[1]) < 1e-5 || abs(Obs->SatObs[i].Adr[0]) < 1e-5 || abs(Obs->SatObs[i].Adr[1]) < 1e-5)
         {
             Obs->SatObs[i].Valid = false;
             continue;
         }
-        Obs->ComObs[i].Prn = Obs->SatObs[i].Prn;
-        Obs->ComObs[i].Sys = Obs->SatObs[i].System;
-        if (Obs->ComObs[i].Sys == GPS)
+        ComObs[i].Prn = Obs->SatObs[i].Prn;
+        ComObs[i].Sys = Obs->SatObs[i].System;
+        if (ComObs[i].Sys == GPS)
         {
             FG1 = FG1_GPS;
             FG2 = FG2_GPS;
         }
-        else if (Obs->ComObs[i].Sys == BDS)
+        else if (ComObs[i].Sys == BDS)
         {
             FG1 = FG1_BDS;
             FG2 = FG3_BDS;
@@ -1011,38 +1097,43 @@ void DetectOutlier(EPOCHOBS* Obs)
             Obs->SatObs[i].Valid = false;
             continue;
         }
-        GF = C_Light * (Obs->SatObs[i].Adr[0] / FG1) - C_Light * (Obs->SatObs[i].Adr[1] / FG2);
-        MW = (C_Light * (Obs->SatObs[i].Adr[0] - Obs->SatObs[i].Adr[1])) / (FG1 - FG2) - (Obs->SatObs[i].Psr[0] * FG1 + Obs->SatObs[i].Psr[1] * FG2) / (FG1 + FG2);
-        double MW_ave;
-        if (Obs->ComObs[i].n == 0)//第一个历元不认为有粗差
+        ComObs[i].n = 1;
+        ComObs[i].GF = C_Light * (Obs->SatObs[i].Adr[0] / FG1) - C_Light * (Obs->SatObs[i].Adr[1] / FG2);
+
+        ComObs[i].MW = (C_Light * (Obs->SatObs[i].Adr[0] - Obs->SatObs[i].Adr[1])) / (FG1 - FG2) -
+                       (Obs->SatObs[i].Psr[0] * FG1 + Obs->SatObs[i].Psr[1] * FG2) / (FG1 + FG2);
+
+        if (PrnSearching(ComObs[i].Prn, Obs, ComObs[i].Sys, &SatIndex))
         {
-            Obs->ComObs[i].GF = GF;
-            Obs->ComObs[i].MW = MW;
-            Obs->ComObs[i].n += 1;
-            Obs->SatObs[i].Valid = true;
-        }
-        else if (Obs->ComObs[i].n > 0)
-        {
-            //做差
-            double dMW = Obs->ComObs[i].MW - MW;
-            double dGF = Obs->ComObs[i].GF - GF;
-            if (abs(dGF) >= 0.05 || abs(dMW) >= 5)
+            if (Obs->ComObs[SatIndex].n == 0)
             {
-                Obs->SatObs[i].Valid = false;
-                Obs->ComObs[i].n = 0;
+                Obs->SatObs[SatIndex].Valid = true;
+                memcpy(&Obs->ComObs[SatIndex], &ComObs[i], sizeof(MWGF));              
             }
-            else
+            else 
             {
-                Obs->ComObs[i].n += 1;
-                MW_ave = ((Obs->ComObs[i].n - 1) * Obs->ComObs[i].MW + MW) / Obs->ComObs[i].n;//计算平滑值
-                Obs->ComObs[i].GF = GF;
-                Obs->ComObs[i].MW = MW_ave;
-                Obs->SatObs[i].Valid = true;
+                double D_MW = Obs->ComObs[SatIndex].MW - ComObs[i].MW;
+                double D_GF = Obs->ComObs[SatIndex].GF - ComObs[i].GF;
+
+                if (abs(D_GF) >= 0.05 || abs(D_MW) >= 5)
+                {
+                    Obs->SatObs[SatIndex].Valid = false;
+                    Obs->ComObs[SatIndex].n = 0;
+                }
+                else
+                {
+                    Obs->ComObs[SatIndex].n += 1;
+                    MW_ave = ((Obs->ComObs[SatIndex].n - 1) * Obs->ComObs[SatIndex].MW + ComObs[i].MW) / Obs->ComObs[SatIndex].n;//计算平滑值
+                    Obs->ComObs[SatIndex].GF = ComObs[i].GF;
+                    Obs->ComObs[SatIndex].MW = MW_ave;
+                    Obs->SatObs[SatIndex].Valid = true;
+                }
             }
         }
-        if (Obs->SatObs[i].Valid == true)
+
+        if (Obs->SatObs[SatIndex].Valid == true)
         {
-            Obs->ComObs[i].PIF = (pow(FG1, 2) * Obs->SatObs[i].Psr[0] - pow(FG2, 2) * Obs->SatObs[i].Psr[1]) / (pow(FG1, 2) - pow(FG2, 2));
+            Obs->ComObs[SatIndex].PIF = (pow(FG1, 2) * Obs->SatObs[i].Psr[0] - pow(FG2, 2) * Obs->SatObs[i].Psr[1]) / (pow(FG1, 2) - pow(FG2, 2));
         }
     }
 }
@@ -1069,7 +1160,8 @@ bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result)
     int j;
     int row;
     //设置初始位置
-    static double RcvPos[3] = { -2267804.5263 , 5009342.3723 , 3220991.8632 };
+    //static double RcvPos[3] = { -2267802.8844 ,5009341.3028 , 3220991.8127 };
+    static double RcvPos[3] = { -2267809,5009323,3221015 };
     //double RcvPos[3] = { -2267802.8844 ,5009341.3028 , 3220991.8127 };
     do
     {
@@ -1085,18 +1177,21 @@ bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result)
         
         //卫星位置计算
         ComputeGPSSatOrbitAtSignalTrans(Epoch, Raw->GpsEph, Raw->BdsEph, Result->Position, Epoch->SatPVT);
+
         //观测方程线性化
         j = 0;
         for (int i = 0; i < Epoch->SatNum; i++)
         {
             if (Epoch->SatPVT[i].Valid == false || Epoch->SatObs[i].Valid == false) continue;
             if (Epoch->SatPVT[i].Elevation < 10 * Rad) continue;   //舍弃高度角过低的卫星
+            //if (((Epoch->SatObs[i].Prn >= 1 && Epoch->SatObs[i].Prn <= 5) || (Epoch->SatObs[i].Prn >= 59 && Epoch->SatObs[i].Prn <= 63))&&
+            //    Epoch->SatObs[i].System==BDS) continue;//暂时跳过BDS GEO卫星,BUG探测
             if (Epoch->SatObs[i].System == GPS)
             {
                 R = sqrt(pow(Result->Position[0] - Epoch->SatPVT[i].SatPos[0], 2) + pow(Result->Position[1] - Epoch->SatPVT[i].SatPos[1], 2) + pow(Result->Position[2] - Epoch->SatPVT[i].SatPos[2], 2));
                 L[j] = (Result->Position[0] - Epoch->SatPVT[i].SatPos[0]) / R;
                 M[j] = (Result->Position[1] - Epoch->SatPVT[i].SatPos[1]) / R;
-                N[j] = (Result->Position[2] - Epoch->SatPVT[i].SatPos[2]) / R;
+                N[j] = (Result->Position[2] - Epoch->SatPVT[i].SatPos[2]) / R;             
                 W[j] = Epoch->ComObs[i].PIF - (R + Result->RcvClkOft[0] - Epoch->SatPVT[i].SatClkOft * C_Light + Epoch->SatPVT[i].TropCorr);
                 GPSSATNUM += 1;
                 j++;
@@ -1127,7 +1222,7 @@ bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result)
                 B[i * row + 3] = 1;
             }
         }
-        else if (GPSSATNUM == 0&&BDSSATNUM!=0)
+        else if (GPSSATNUM == 0 && BDSSATNUM != 0)
         {
             row = 4;
             for (int i = 0; i < GPSSATNUM; i++)
@@ -1168,7 +1263,6 @@ bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result)
         iteration++;
     
     } while(sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]) > 1e-2 && iteration<10);
-
     
     Result->Position[0] = Result->Position[0] + delta[0];
     Result->Position[1] = Result->Position[1] + delta[1];
@@ -1187,7 +1281,7 @@ bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result)
     matrix_minus(j, 1, j, 1, BX, W, V);
     matrix_transfer(j, 1, V, VT);
     matrix_multiply(1, j, j, 1, VT, V, VTV);
-    Result->SigmaPos = sqrt(VTV[0] / (j - 5));
+    Result->SigmaPos = sqrt(VTV[0] / (j - 4));
     Result->PDOP = sqrt(BTBinv[0] + BTBinv[row + 1] + BTBinv[2 * (row + 1)]);
 
     if (Result->SigmaPos < 2.5)
@@ -1323,6 +1417,57 @@ int GetSynObs(FILE* FBas, FILE* FRov, RAWDAT* Raw)
         } 
     }
 }
+
+int GetSynObs(SOCKET& BasSock, SOCKET& RovSock, RAWDAT* Raw)
+{
+    double deltaT = 0;
+    int Status1 = 0;
+    int Status2 = 0;
+    static int LenRemBas = 0;//剩余的字节
+    static int LenRemRov = 0;
+    int LenReadRov;//已读取字节
+    int LenReadBas;
+    static unsigned char BuffBas[MAXNOVDLEN] = { 0 };
+    static unsigned char BuffRov[MAXNOVDLEN] = { 0 };
+    //读取一个历元流动站观测值
+    do
+    {
+        Status1 = decode(&Raw->RovEpk, RovSock, Raw, BuffRov, LenReadRov, LenRemRov);
+        if (Status1 == -1) return -1;
+    } while (Status1 != 1);
+    //直接和基站求时间差
+    deltaT = (Raw->RovEpk.Time.Week - Raw->BasEpk.Time.Week) * 604800 + Raw->RovEpk.Time.SecOfWeek - Raw->BasEpk.Time.SecOfWeek;
+
+    //满足要求
+    if (fabs(deltaT) <= DELTATIME) return 1;
+
+    while (fabs(deltaT) > DELTATIME)
+    {
+        while (deltaT > 0)//Rov时间大于Bas
+        {
+            do
+            {
+                Status2 = decode(&Raw->BasEpk, BasSock, Raw, BuffBas, LenReadBas, LenRemBas);
+                if (Status2 == -1) return -1;
+            } while (Status2 != 1);
+
+            deltaT = (Raw->RovEpk.Time.Week - Raw->BasEpk.Time.Week) * 604800 + Raw->RovEpk.Time.SecOfWeek - Raw->BasEpk.Time.SecOfWeek;
+            if (fabs(deltaT) < DELTATIME) return 1;
+        }
+
+        while (deltaT < 0)//Rov时间小于Bas时间
+        {
+            do
+            {
+                Status1 = decode(&Raw->RovEpk, RovSock, Raw, BuffRov, LenReadRov, LenRemRov);
+                if (Status1 == -1) return -1;
+            } while (Status1 != 1);
+
+            deltaT = (Raw->RovEpk.Time.Week - Raw->BasEpk.Time.Week) * 604800 + Raw->RovEpk.Time.SecOfWeek - Raw->BasEpk.Time.SecOfWeek;
+            if (fabs(deltaT) < DELTATIME) return 1;
+        }
+    }
+}
 void FormSDEpochObs(const EPOCHOBS* EpkA, const EPOCHOBS* EpkB, SDEPOCHOBS* SDObs)//EpkA=Rov,EpkB=Bas
 {
     int  j=-1;
@@ -1451,6 +1596,10 @@ void DetRefSat(const EPOCHOBS* EpkA, const EPOCHOBS* EpkB, SDEPOCHOBS* SDObs, DD
             SatIndex[j] = i;
             j++;
         }
+        else{}
+
+        
+        
     }
     for (int i = 0; i < j; i++)
     {
@@ -1484,18 +1633,16 @@ void DetRefSat(const EPOCHOBS* EpkA, const EPOCHOBS* EpkB, SDEPOCHOBS* SDObs, DD
             Status[i] = true;
         }
     }
-    DDObs->Sats = j;
     if (DDGpsSatNum != 0)DDObs->DDSatNum[0] = DDGpsSatNum - 1;
     else DDObs->DDSatNum[0] = 0;
     if (DDBdsSatNum != 0)DDObs->DDSatNum[1] = DDBdsSatNum - 1;
     else DDObs->DDSatNum[1] = 0;
+    DDObs->Sats = DDObs->DDSatNum[0] + DDObs->DDSatNum[1];
 }
+
+//0=RTKFixed,-1=RTKFloat,1=false
 bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
 {
-    SDEPOCHOBS* SDObs = new SDEPOCHOBS;
-    DDCOBS*     DDObs = new DDCOBS;
-    
-
     bool        StatusSDObs = false;                                      //流动站卫星是否与单差观测值卫星匹配成功
     int         SDObsIndex = -1;                                          //与流动站对应卫星在单差观测值中索引,0=Gps,1=Bds
 
@@ -1507,45 +1654,37 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
 
     bool        StatusRefEpk = false;                                     //基准星是否在基站观测值卫星中匹配成功
     int         EpkBRefPos = -1;                                          //基准星在基站观测卫星中的索引,0=Gps,1=Bds
+
     double      L;
     double      M;
-    double      N;                                                        //系数矩阵内系数l,m,n      
+    double      N;                                                        //系数矩阵内系数l,m,n 
+
     double      W[4*MAXCHANNUM]{ 0 };    
     double      B[4 * MAXCHANNUM * (3 + MAXCHANNUM * 2)]{ 0 };            //系数矩阵 4*DDSatNum × 3 + DDSatNum * 2
+    double      P[4 * MAXCHANNUM * 4 * MAXCHANNUM]{ 0 };                  //权矩阵
+    double      Q[4 * (MAXCHANNUM - 3) * 4 * (MAXCHANNUM - 3)]{ 0 };      //模糊度Q矩阵
     double      BT[(3 + MAXCHANNUM * 2) * 4 * MAXCHANNUM]{ 0 };
     double      BTP[(3 + MAXCHANNUM * 2) * 4 * MAXCHANNUM]{ 0 };
     double      BTPB[(3 + MAXCHANNUM * 2)* (3 + MAXCHANNUM * 2)]{ 0 };
-    double      invBTPB[4 * MAXCHANNUM * 4 * MAXCHANNUM]{ 0 };
     double      BTPW[3 + MAXCHANNUM * 2]{ 0 };
-    double      P[4 * MAXCHANNUM * 4 * MAXCHANNUM]{ 0 };                  //权矩阵
+    double      invBTPB[4 * MAXCHANNUM * 4 * MAXCHANNUM]{ 0 };
+
+    int         j;
+    double      F[2]{ 0 };                                                //GPS(L1/L2)或BDS(B1/B3)信号频率  F
+    double      R[2]{ 0 };
+    double      Lan[2]{ 0 };                                              //GPS(L1/L2)或BDS(B1/B3)信号波长  Lan=C_Light/F
+    double      iteration = 0;                                            //循环次数
     double      deltaPos[3]{ 0 };                                         //待估流动站位置改正数
     double      deltaNbr[MAXCHANNUM * 2]{ 0 };                            //模糊度参数
-    double      iteration = 0;                                            //循环次数
     double      Nbr[MAXCHANNUM * 2]{ 0 };                                 //模糊度
     bool        NbrValid = false;                                         //false=模糊度未初始化，true=模糊度已经初始化
-    double      F[2]{ 0 };                                                //GPS(L1/L2)或BDS(B1/B3)信号频率  F
-    double      Lan[2]{ 0 };                                              //GPS(L1/L2)或BDS(B1/B3)信号波长  Lan=C_Light/F
+
+    int         SysIndex = -1;                                            //0=Gps,1=BDS,-1=Unknow
     double      RBasIg[2]{ 0 }, RBasJg[2]{ 0 };
     double      RRovIg[2]{ 0 }, RRovJg[2]{ 0 };
-    double      R[2]{ 0 };
-    int         SysIndex = -1;                                            //0=Gps,1=BDS,-1=Unknow
-    int         j;
-    //double      BasPos[3] = { -2267804.5263,5009342.3723,3220991.8632 };
-    //站间单差计算
-    FormSDEpochObs(&Raw->RovEpk, &Raw->BasEpk, SDObs);
 
-    //单差观测值粗差探测
-    if (Raw->RovEpk.Time.SecOfWeek == 370125)
-    {
-        cout << endl;//test
-    }
-    DetectCycleSlip(SDObs);
+                                                                          
 
-    //基准星选取,双差卫星数计算
-    DetRefSat(&Raw->RovEpk, &Raw->BasEpk, SDObs, DDObs);
-    //printf("DDGPSSATNNUM:%d\tDDBDSSATNUM:%d\tRefGpsSatPrn:%d\tRefBdsSatPrn:%d\n", DDObs->DDSatNum[0], DDObs->DDSatNum[1], DDObs->RefPrn[0], DDObs->RefPrn[1]);
-    
-    //RTKFloat
     do
     {
         
@@ -1559,7 +1698,7 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
         }
 
 
-        if (DDObs->Sats < 5) return false;
+        if (Raw->DDObs.Sats < 5) return false;
         j = 0;
         for (int i = 0; i < Raw->RovEpk.SatNum; i++)
         {
@@ -1569,8 +1708,8 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
             StatusRefEpk   = false;
 
             //跳过基准星
-            if ((Raw->RovEpk.SatObs[i].Prn == DDObs->RefPrn[0] && Raw->RovEpk.SatObs[i].System == GPS) ||
-                (Raw->RovEpk.SatObs[i].Prn == DDObs->RefPrn[1] && Raw->RovEpk.SatObs[i].System == BDS)) 
+            if ((Raw->RovEpk.SatObs[i].Prn == Raw->DDObs.RefPrn[0] && Raw->RovEpk.SatObs[i].System == GPS) ||
+                (Raw->RovEpk.SatObs[i].Prn == Raw->DDObs.RefPrn[1] && Raw->RovEpk.SatObs[i].System == BDS))
                 continue;                                                                       
 
             if      (Raw->RovEpk.SatObs[i].System == GPS) SysIndex = 0;
@@ -1601,14 +1740,14 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
                 break;
             }
             
-            if (DDObs->RefPrn[SysIndex] != -1 && DDObs->DDSatNum[SysIndex] > 0)
+            if (Raw->DDObs.RefPrn[SysIndex] != -1 && Raw->DDObs.DDSatNum[SysIndex] > 0)
             {
                 //获取SDObs中基准星索引
-                StatusRefSDObs = PrnSearching(DDObs->RefPrn[SysIndex], SDObs, Raw->RovEpk.SatObs[DDObs->RefPos[SysIndex]].System, &SDObsRefPos);
+                StatusRefSDObs = PrnSearching(Raw->DDObs.RefPrn[SysIndex], &Raw->SdObs, Raw->RovEpk.SatObs[Raw->DDObs.RefPos[SysIndex]].System, &SDObsRefPos);
                 if (StatusRefSDObs != true) return false;
 
                 //获取BasObs中基准星索引
-                StatusRefEpk = PrnSearching(DDObs->RefPrn[SysIndex], &Raw->BasEpk, Raw->RovEpk.SatObs[DDObs->RefPos[SysIndex]].System, &EpkBRefPos);
+                StatusRefEpk = PrnSearching(Raw->DDObs.RefPrn[SysIndex], &Raw->BasEpk, Raw->RovEpk.SatObs[Raw->DDObs.RefPos[SysIndex]].System, &EpkBRefPos);
                 if (StatusRefEpk != true) return false;
 
                 //基站到参考星距离
@@ -1617,25 +1756,25 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
                                         pow(Base->Position[2] - Raw->BasEpk.SatPVT[EpkBRefPos].SatPos[2], 2));
 
                 //流动站到参考星距离
-                RRovIg[SysIndex] = sqrt(pow(Rov->Position[0] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[0], 2) +
-                                        pow(Rov->Position[1] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[1], 2) +
-                                        pow(Rov->Position[2] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[2], 2));
+                RRovIg[SysIndex] = sqrt(pow(Rov->Position[0] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[0], 2) +
+                                        pow(Rov->Position[1] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[1], 2) +
+                                        pow(Rov->Position[2] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[2], 2));
             }
 
 
             if (Raw->RovEpk.SatObs[i].Valid == true && Raw->RovEpk.SatPVT[i].Valid == true)
             {
-                StatusSDObs = PrnSearching(Raw->RovEpk.SatObs[i].Prn, SDObs,        Raw->RovEpk.SatObs[i].System, &SDObsIndex);  //获取SDObs中卫星索引
+                StatusSDObs = PrnSearching(Raw->RovEpk.SatObs[i].Prn, &Raw->SdObs,  Raw->RovEpk.SatObs[i].System, &SDObsIndex);  //获取SDObs中卫星索引
                 StatusEpkB  = PrnSearching(Raw->RovEpk.SatObs[i].Prn, &Raw->BasEpk, Raw->RovEpk.SatObs[i].System, &EpkBIndex );  //获取BasObs中卫星索引
             }
 
-            if(StatusEpkB && StatusSDObs && Raw->BasEpk.SatObs[EpkBIndex].Valid && Raw->BasEpk.SatPVT[EpkBIndex].Valid && SDObs->SdSatObs[SDObsIndex].Valid)
+            if(StatusEpkB && StatusSDObs && Raw->BasEpk.SatObs[EpkBIndex].Valid && Raw->BasEpk.SatPVT[EpkBIndex].Valid && Raw->SdObs.SdSatObs[SDObsIndex].Valid)
             {
                 //模糊度初始化
                 if (NbrValid == false)
                 {
-                    Nbr[2 * j + 0] = (SDObs->SdSatObs[SDObsIndex].dL[0] * Lan[0] - SDObs->SdSatObs[SDObsIndex].dP[0]) / Lan[0];
-                    Nbr[2 * j + 1] = (SDObs->SdSatObs[SDObsIndex].dL[1] * Lan[1] - SDObs->SdSatObs[SDObsIndex].dP[1]) / Lan[1];
+                    Nbr[2 * j + 0] = (Raw->SdObs.SdSatObs[SDObsIndex].dL[0] * Lan[0] - Raw->SdObs.SdSatObs[SDObsIndex].dP[0]) / Lan[0];
+                    Nbr[2 * j + 1] = (Raw->SdObs.SdSatObs[SDObsIndex].dL[1] * Lan[1] - Raw->SdObs.SdSatObs[SDObsIndex].dP[1]) / Lan[1];
                 }
 
                 RBasJg[SysIndex] = sqrt(pow(Base->Position[0] - Raw->BasEpk.SatPVT[EpkBIndex].SatPos[0], 2) +
@@ -1648,38 +1787,39 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
 
                 R[SysIndex] = RRovJg[SysIndex] - RRovIg[SysIndex] - RBasJg[SysIndex] + RBasIg[SysIndex];
 
-                L = (Rov->Position[0] - Raw->RovEpk.SatPVT[i].SatPos[0]) / RRovJg[SysIndex] - (Rov->Position[0] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[0]) / RRovIg[SysIndex];
-                M = (Rov->Position[1] - Raw->RovEpk.SatPVT[i].SatPos[1]) / RRovJg[SysIndex] - (Rov->Position[1] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[1]) / RRovIg[SysIndex];
-                N = (Rov->Position[2] - Raw->RovEpk.SatPVT[i].SatPos[2]) / RRovJg[SysIndex] - (Rov->Position[2] - Raw->RovEpk.SatPVT[DDObs->RefPos[SysIndex]].SatPos[2]) / RRovIg[SysIndex];
+                L = (Rov->Position[0] - Raw->RovEpk.SatPVT[i].SatPos[0]) / RRovJg[SysIndex] - (Rov->Position[0] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[0]) / RRovIg[SysIndex];
+                M = (Rov->Position[1] - Raw->RovEpk.SatPVT[i].SatPos[1]) / RRovJg[SysIndex] - (Rov->Position[1] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[1]) / RRovIg[SysIndex];
+                N = (Rov->Position[2] - Raw->RovEpk.SatPVT[i].SatPos[2]) / RRovJg[SysIndex] - (Rov->Position[2] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[2]) / RRovIg[SysIndex];
 
                 //系数矩阵B
                 for (int k = 0; k < 4; k++)
                 {
-                    B[(k + 4 * j) * (3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2) + 0] = L;
-                    B[(k + 4 * j) * (3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2) + 1] = M;
-                    B[(k + 4 * j) * (3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2) + 2] = N;
+                    B[(k + 4 * j) * (3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2) + 0] = L;
+                    B[(k + 4 * j) * (3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2) + 1] = M;
+                    B[(k + 4 * j) * (3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2) + 2] = N;
                 }
 
-                B[(2 + 4 * j) * (3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2) + (2 * j + 3)] = Lan[0];
-                B[(3 + 4 * j) * (3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2) + (2 * j + 4)] = Lan[1];
+                B[(2 + 4 * j) * (3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2) + (2 * j + 3)] = Lan[0];
+                B[(3 + 4 * j) * (3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2) + (2 * j + 4)] = Lan[1];
 
                 //W矩阵
-                W[4 * j + 0] = SDObs->SdSatObs[SDObsIndex].dP[0] - SDObs->SdSatObs[SDObsRefPos].dP[0] - R[SysIndex];
-                W[4 * j + 1] = SDObs->SdSatObs[SDObsIndex].dP[1] - SDObs->SdSatObs[SDObsRefPos].dP[1] - R[SysIndex];
-                W[4 * j + 2] = SDObs->SdSatObs[SDObsIndex].dL[0] * Lan[0] - SDObs->SdSatObs[SDObsRefPos].dL[0] * Lan[0] - R[SysIndex] - Lan[0] * Nbr[2 * j + 0];
-                W[4 * j + 3] = SDObs->SdSatObs[SDObsIndex].dL[1] * Lan[1] - SDObs->SdSatObs[SDObsRefPos].dL[1] * Lan[1] - R[SysIndex] - Lan[1] * Nbr[2 * j + 1];
+                W[4 * j + 0] = Raw->SdObs.SdSatObs[SDObsIndex].dP[0] - Raw->SdObs.SdSatObs[SDObsRefPos].dP[0] - R[SysIndex];
+                W[4 * j + 1] = Raw->SdObs.SdSatObs[SDObsIndex].dP[1] - Raw->SdObs.SdSatObs[SDObsRefPos].dP[1] - R[SysIndex];
+                W[4 * j + 2] = Raw->SdObs.SdSatObs[SDObsIndex].dL[0] * Lan[0] - Raw->SdObs.SdSatObs[SDObsRefPos].dL[0] * Lan[0] - R[SysIndex] - Lan[0] * Nbr[2 * j + 0];
+                W[4 * j + 3] = Raw->SdObs.SdSatObs[SDObsIndex].dL[1] * Lan[1] - Raw->SdObs.SdSatObs[SDObsRefPos].dL[1] * Lan[1] - R[SysIndex] - Lan[1] * Nbr[2 * j + 1];
                 
                 //P矩阵
-                double PsrFactor =  ((DDObs->DDSatNum[SysIndex] + 1) * PsrW);     //伪距双差观测值权重分母
-                double AdrFactor =  ((DDObs->DDSatNum[SysIndex] + 1) * AdrW);     //相位双差观测值权重分母
-                double rat;                                                       //权重分子，对角线上分子为双差卫星数，非对角线为-1
-                int    Ndd;                                                       //双差卫星数
-                int col = 4 * (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]);          //P矩阵列数
+                double PsrFactor =  ((Raw->DDObs.DDSatNum[SysIndex] + 1) * PsrW);     //伪距双差观测值权重分母
+                double AdrFactor =  ((Raw->DDObs.DDSatNum[SysIndex] + 1) * AdrW);     //相位双差观测值权重分母
+                double rat;                                                           //权重分子，对角线上分子为双差卫星数，非对角线为-1
+                int    Ndd;                                                           //双差卫星数
+
+                int col = 4 * (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]);      //P矩阵列数
                 if (SysIndex == 0)
                 {
-                    for (Ndd = 0; Ndd < DDObs->DDSatNum[0]; Ndd++)
+                    for (Ndd = 0; Ndd < Raw->DDObs.DDSatNum[0]; Ndd++)
                     {
-                        if (j == Ndd) rat = DDObs->DDSatNum[0];
+                        if (j == Ndd) rat = Raw->DDObs.DDSatNum[0];
                         else          rat = -1;
 
                         P[(4 * j + 0) * col + 4 * Ndd + 0] = rat / PsrFactor;
@@ -1690,9 +1830,9 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
                 }
                 else if (SysIndex == 1)
                 {
-                    for (Ndd = DDObs->DDSatNum[0]; Ndd < DDObs->DDSatNum[1] + DDObs->DDSatNum[0]; Ndd++)
+                    for (Ndd = Raw->DDObs.DDSatNum[0]; Ndd < Raw->DDObs.DDSatNum[1] + Raw->DDObs.DDSatNum[0]; Ndd++)
                     {
-                        if (j == Ndd) rat = DDObs->DDSatNum[1];
+                        if (j == Ndd) rat = Raw->DDObs.DDSatNum[1];
                         else          rat = -1;
 
                         P[(4 * j + 0) * col + 4 * Ndd + 0] = rat / PsrFactor;
@@ -1707,15 +1847,15 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
             else continue;
         }
 
-        if (j != DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) return false;//BUGTEST
+        if (j != Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) return false;//BUGTEST
         if (j < 5) return false;
         NbrValid = true;
 
 
         //MatrixTest
-        //MatrixDisplay(4 * (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]), 3 + (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]) * 2, B);
-        //MatrixDisplay(4 * (DDObs->DDSatNum[0] + DDObs->DDSatNum[1]), 1, W);
-        MatrixDisplay(4 * j, 4 * j , P);
+        //MatrixDisplay(4 * (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]), 3 + (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]) * 2, B);
+        //MatrixDisplay(4 * (Raw->DDObs.DDSatNum[0] + Raw->DDObs.DDSatNum[1]), 1, W);
+        //MatrixDisplay(4 * j, 4 * j , P);
 
         double MidDelta[3 + 2 * MAXCHANNUM]{ 0 };
         matrix_transfer(4 * j, (3 + j * 2), B, BT);
@@ -1745,14 +1885,274 @@ bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
     }
     for (int i = 0; i < 3; i++)
     {
-        DDObs->dPos[i] = Rov->Position[i] - Base->Position[i];
+        Raw->DDObs.dPos[i] = Rov->Position[i] - Base->Position[i];   
     }
+    //printf("ObsTime:%13.5F DX:%13.5F DY:%13.5F DZ:%13.5F\n",Rov->Time.SecOfWeek, Raw->DDObs.dPos[0], Raw->DDObs.dPos[1], Raw->DDObs.dPos[2]);
+    // 
+    //提取模糊度Q矩阵
+    for (int i = 3; i < 2 * Raw->DDObs.Sats + 3; i++)
+    {
+        for (int j = 3; j < 2 * Raw->DDObs.Sats + 3; j++)
+        {
+            int p = i - 3; int q = j - 3;
+            Q[p * (2 * Raw->DDObs.Sats) + q] = invBTPB[i * (2 * Raw->DDObs.Sats + 3) + j];
+        }
+    }
+
+    //printf("InvBTPB:\n");
+    //MatrixDisplay(2 * Raw->DDObs.Sats + 3, 2 * Raw->DDObs.Sats + 3, invBTPB);
+    //printf("Nbr Qxx:\n");
+    //MatrixDisplay(2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, Q);
     
-    //精度评定
 
-    return false;
+    
+    //模糊度固定 0:ok,other:error
+    if (lambda(2 * Raw->DDObs.Sats, 2, Nbr, Q, Raw->DDObs.FixedAmb, Raw->DDObs.ResAmb) == 0)
+    {
+        //固定完成,模糊度检验
+        Raw->DDObs.Ratio = Raw->DDObs.ResAmb[1] / Raw->DDObs.ResAmb[0];
+        //模糊度检验通过
+        if (Raw->DDObs.Ratio > 3)
+        {
+            RTKFixed(Raw, Base, Rov);
+            Raw->DDObs.bFixed = true;
+        }
+        //不通过则认为固定失败
+        else Raw->DDObs.bFixed = false;      
+    }
+    return true;
+    
 }
+void RTKFixed(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov)
+{
+    bool        StatusSDObs = false;                                      //流动站卫星是否与单差观测值卫星匹配成功
+    int         SDObsIndex = -1;                                          //与流动站对应卫星在单差观测值中索引,0=Gps,1=Bds
 
+    bool        StatusEpkB = false;                                       //流动站卫星是否与基准站观测值卫星匹配成功
+    int         EpkBIndex = -1;                                           //与流动站对应卫星在基站观测值中索引,0=Gps,1=Bds
+
+    bool        StatusRefSDObs = false;                                   //基准星是否在单差观测值卫星中匹配成功
+    int         SDObsRefPos = -1;                                         //基准星在单差观测值中的索引,0=Gps,1=Bds
+
+    bool        StatusRefEpk = false;                                     //基准星是否在基站观测值卫星中匹配成功
+    int         EpkBRefPos = -1;                                          //基准星在基站观测卫星中的索引,0=Gps,1=Bds
+
+    double      L;
+    double      M;
+    double      N;                                                        //系数矩阵内系数l,m,n 
+
+    double      W[2 * MAXCHANNUM]{ 0 };
+    double      B[2 * 3 * MAXCHANNUM]{ 0 };                               //系数矩阵 2*DDSATNUM × 3
+    double      BT[2 * 3 * MAXCHANNUM]{ 0 };
+    double      P[2 * MAXCHANNUM * 2 * MAXCHANNUM]{ 0 };                  //权阵 2*DDSATNUM×2*DDSATNUM
+    double      BTP[2 * 3 * MAXCHANNUM]{ 0 };                             //3×2*DDSATNUM
+    double      BTPB[9]{ 0 };                                             //3×3
+    double      BTPW[3 + MAXCHANNUM * 2]{ 0 };                            //3×1
+    double      invBTPB[9]{ 0 };                                          //3×3
+
+    int         j;
+    double      F[2]{ 0 };                                                //GPS(L1/L2)或BDS(B1/B3)信号频率  F
+    double      R[2]{ 0 };
+    double      Lan[2]{ 0 };                                              //GPS(L1/L2)或BDS(B1/B3)信号波长  Lan=C_Light/F
+    double      iteration = 0;                                            //循环次数
+    double      deltaPos[3]{ 0 };                                         //待估流动站位置改正数
+    double      Nbr[MAXCHANNUM * 2]{ 0 };                                 //已固定模糊度
+    bool        NbrValid = false;                                         //false=模糊度未初始化，true=模糊度已经初始化
+
+
+    int         SysIndex = -1;                                            //0=Gps,1=BDS,-1=Unknow
+    double      RBasIg[2]{ 0 }, RBasJg[2]{ 0 };
+    double      RRovIg[2]{ 0 }, RRovJg[2]{ 0 };
+
+    //精度评定相关定义
+    double delta2 = 0;                                                    //单位权中误差
+    double WT[4 * MAXCHANNUM]{ 0 };
+    double WTP[4 * MAXCHANNUM]{ 0 };
+    double WTPW[1]{ 0 };
+
+    double BasPos[3] = { -2267804.5263, 5009342.3723, 3220991.8632 };
+
+    //RTKFixed
+    do
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            Rov->Position[i] = Rov->Position[i] + deltaPos[i];
+        }
+
+        j = 0;
+        for (int i = 0; i < Raw->RovEpk.SatNum; i++)
+        {
+            StatusEpkB = false;
+            StatusSDObs = false;
+            StatusRefSDObs = false;
+            StatusRefEpk = false;
+
+            //跳过基准星
+            if ((Raw->RovEpk.SatObs[i].Prn == Raw->DDObs.RefPrn[0] && Raw->RovEpk.SatObs[i].System == GPS) ||
+                (Raw->RovEpk.SatObs[i].Prn == Raw->DDObs.RefPrn[1] && Raw->RovEpk.SatObs[i].System == BDS))
+                continue;
+
+            if (Raw->RovEpk.SatObs[i].System == GPS) SysIndex = 0;
+            else if (Raw->RovEpk.SatObs[i].System == BDS) SysIndex = 1;
+            else continue;
+
+            switch (SysIndex)
+            {
+
+            case 0:
+                F[0] = FG1_GPS;
+                Lan[0] = C_Light / F[0];
+
+                F[1] = FG2_GPS;
+                Lan[1] = C_Light / F[1];
+
+                break;
+            case 1:
+                F[0] = FG1_BDS;
+                Lan[0] = C_Light / F[0];
+
+                F[1] = FG3_BDS;
+                Lan[1] = C_Light / F[1];
+
+                break;
+
+            default:
+                break;
+            }
+         
+            if (Raw->DDObs.RefPrn[SysIndex] != -1 && Raw->DDObs.DDSatNum[SysIndex] > 0)
+            {
+                if (!PrnSearching(Raw->DDObs.RefPrn[SysIndex], &Raw->SdObs, Raw->RovEpk.SatObs[Raw->DDObs.RefPos[SysIndex]].System, &SDObsRefPos)) continue;
+                if (!PrnSearching(Raw->DDObs.RefPrn[SysIndex], &Raw->BasEpk, Raw->RovEpk.SatObs[Raw->DDObs.RefPos[SysIndex]].System, &EpkBRefPos)) continue;
+
+                //基站到参考星距离
+                RBasIg[SysIndex] = sqrt(pow(Base->Position[0] - Raw->BasEpk.SatPVT[EpkBRefPos].SatPos[0], 2) +
+                    pow(Base->Position[1] - Raw->BasEpk.SatPVT[EpkBRefPos].SatPos[1], 2) +
+                    pow(Base->Position[2] - Raw->BasEpk.SatPVT[EpkBRefPos].SatPos[2], 2));
+
+                //流动站到参考星距离
+                RRovIg[SysIndex] = sqrt(pow(Rov->Position[0] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[0], 2) +
+                    pow(Rov->Position[1] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[1], 2) +
+                    pow(Rov->Position[2] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[2], 2));
+            }
+
+            if (Raw->RovEpk.SatObs[i].Valid == true && Raw->RovEpk.SatPVT[i].Valid == true)
+            {
+                StatusSDObs = PrnSearching(Raw->RovEpk.SatObs[i].Prn, &Raw->SdObs, Raw->RovEpk.SatObs[i].System, &SDObsIndex);  //获取SDObs中卫星索引
+                StatusEpkB = PrnSearching(Raw->RovEpk.SatObs[i].Prn, &Raw->BasEpk, Raw->RovEpk.SatObs[i].System, &EpkBIndex);  //获取BasObs中卫星索引
+            }
+
+            if (StatusEpkB && StatusSDObs && Raw->BasEpk.SatObs[EpkBIndex].Valid && Raw->BasEpk.SatPVT[EpkBIndex].Valid && Raw->SdObs.SdSatObs[SDObsIndex].Valid)
+            {
+                //模糊度初始化
+                if (NbrValid == false)
+                {
+                    Nbr[2 * j + 0] = Raw->DDObs.FixedAmb[2 * j + 0];
+                    Nbr[2 * j + 1] = Raw->DDObs.FixedAmb[2 * j + 1];
+                }
+
+                RBasJg[SysIndex] = sqrt(pow(Base->Position[0] - Raw->BasEpk.SatPVT[EpkBIndex].SatPos[0], 2) +
+                    pow(Base->Position[1] - Raw->BasEpk.SatPVT[EpkBIndex].SatPos[1], 2) +
+                    pow(Base->Position[2] - Raw->BasEpk.SatPVT[EpkBIndex].SatPos[2], 2));
+
+                RRovJg[SysIndex] = sqrt(pow(Rov->Position[0] - Raw->RovEpk.SatPVT[i].SatPos[0], 2) +
+                    pow(Rov->Position[1] - Raw->RovEpk.SatPVT[i].SatPos[1], 2) +
+                    pow(Rov->Position[2] - Raw->RovEpk.SatPVT[i].SatPos[2], 2));
+
+                R[SysIndex] = RRovJg[SysIndex] - RRovIg[SysIndex] - RBasJg[SysIndex] + RBasIg[SysIndex];
+
+                L = (Rov->Position[0] - Raw->RovEpk.SatPVT[i].SatPos[0]) / RRovJg[SysIndex] - (Rov->Position[0] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[0]) / RRovIg[SysIndex];
+                M = (Rov->Position[1] - Raw->RovEpk.SatPVT[i].SatPos[1]) / RRovJg[SysIndex] - (Rov->Position[1] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[1]) / RRovIg[SysIndex];
+                N = (Rov->Position[2] - Raw->RovEpk.SatPVT[i].SatPos[2]) / RRovJg[SysIndex] - (Rov->Position[2] - Raw->RovEpk.SatPVT[Raw->DDObs.RefPos[SysIndex]].SatPos[2]) / RRovIg[SysIndex];
+
+                //系数矩阵B
+                for (int k = 0; k < 2; k++)
+                {
+                    B[(k + 2 * j) * 3 + 0] = L;
+                    B[(k + 2 * j) * 3 + 1] = M;
+                    B[(k + 2 * j) * 3 + 2] = N;
+                }
+
+                //W矩阵
+                W[2 * j + 0] = Raw->SdObs.SdSatObs[SDObsIndex].dL[0] * Lan[0] - Raw->SdObs.SdSatObs[SDObsRefPos].dL[0] * Lan[0] - R[SysIndex] - Lan[0] * Nbr[2 * j + 0];
+                W[2 * j + 1] = Raw->SdObs.SdSatObs[SDObsIndex].dL[1] * Lan[1] - Raw->SdObs.SdSatObs[SDObsRefPos].dL[1] * Lan[1] - R[SysIndex] - Lan[1] * Nbr[2 * j + 1];
+
+                //P矩阵(暂时设为单位阵)
+                //double PsrFactor = ((Raw->DDObs.DDSatNum[SysIndex] + 1) * PsrW);     //伪距双差观测值权重分母
+                double AdrFactor = ((Raw->DDObs.DDSatNum[SysIndex] + 1) * AdrW);      //相位双差观测值权重分母
+                double rat;                                                           //权重分子，对角线上分子为1，非对角线为0
+                int    Ndd;                                                           //双差卫星数
+
+                int col = 2 * (Raw->DDObs.Sats);                                      //P矩阵列数
+                if (SysIndex == 0)
+                {
+                    for (Ndd = 0; Ndd < Raw->DDObs.DDSatNum[0]; Ndd++)
+                    {
+                        if (j == Ndd) rat = Raw->DDObs.DDSatNum[0];
+                        else          rat = -1;
+
+                        P[(2 * j + 0) * col + 2 * Ndd + 0] = rat/AdrFactor;
+                        P[(2 * j + 1) * col + 2 * Ndd + 1] = rat/AdrFactor;
+                    }
+                }
+                else if (SysIndex == 1)
+                {
+                    for (Ndd = Raw->DDObs.DDSatNum[0]; Ndd < Raw->DDObs.Sats; Ndd++)
+                    {
+                        if (j == Ndd) rat = Raw->DDObs.DDSatNum[1];
+                        else          rat = -1;
+
+                        P[(2 * j + 0) * col + 2 * Ndd + 0] = rat/AdrFactor;
+                        P[(2 * j + 1) * col + 2 * Ndd + 1] = rat/AdrFactor;
+                    }
+                }
+                else continue;
+                j++;
+            }
+            else continue;
+
+
+        }
+        NbrValid = true;
+
+        //MatrixTest
+        //MatrixDisplay(2*Raw->DDObs.Sats, 3, B);
+        //MatrixDisplay(2*Raw->DDObs.Sats, 1, W);
+        //MatrixDisplay(2 * j, 2 * j , P);
+
+        //LS
+        matrix_transfer(2 * Raw->DDObs.Sats, 3, B, BT);
+        matrix_multiply(3, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, BT, P, BTP);
+        matrix_multiply(3, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, 3, BTP, B, BTPB);
+        matrix_Inv(3, BTPB, invBTPB);
+        matrix_multiply(3, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, 1, BTP, W, BTPW);
+        matrix_multiply(3, 3, 3, 1, invBTPB, BTPW, deltaPos);
+        iteration++;
+    } while (sqrt(vector_dot(1,3,1,3,deltaPos,deltaPos))>1e-2||iteration<10);
+
+    for (int i = 0; i < 3; i++)
+    {
+        Rov->Position[i] = Rov->Position[i] + deltaPos[i];
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        Raw->DDObs.dPos[i] = Rov->Position[i] - Base->Position[i];
+    }
+
+    //精度评定
+    //double      W[2 * MAXCHANNUM]{ 0 };
+    //double      B[2 * 3 * MAXCHANNUM]{ 0 };                               //系数矩阵 2*DDSATNUM × 3
+    //double      BT[2 * 3 * MAXCHANNUM]{ 0 };
+    //double      P[2 * MAXCHANNUM * 2 * MAXCHANNUM]{ 0 };                  //权阵 2*DDSATNUM×2*DDSATNUM
+    //double      BTP[2 * 3 * MAXCHANNUM]{ 0 };                             //3×2*DDSATNUM
+    //double      BTPB[9]{ 0 };                                             //3×3
+    //double      BTPW[3 + MAXCHANNUM * 2]{ 0 };                            //3×1
+    //double      invBTPB[9]{ 0 };                                          //3×3
+    //matrix_transfer(2 * Raw->DDObs.Sats, 1, W, WT);
+    //matrix_multiply(1, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, 2 * Raw->DDObs.Sats, WT, P, WTP);
+    //matrix  
+}
 //Test
 bool PrnSearching(const short Prn, const EPOCHOBS* Epoch ,const int Sys,int* EpochIndex)
 {
@@ -1805,6 +2205,38 @@ void MatrixDisplay(int m, int n, double Mat[])
         printf("\n");
     }
     printf("\n");
+}
+void SaveSocketData(SOCKET Soc, FILE* Dat)
+{
+    void *buff = malloc(sizeof(unsigned char) * MAXNOVDLEN);
+    unsigned char *Buff;
+    Buff = (unsigned char*)buff;
+    recv(Soc, (char*)Buff, MAXNOVDLEN, 0);
+    fwrite((char*)Buff, sizeof(unsigned char),MAXNOVDLEN,Dat);
+}
+//Socket
+bool OpenSocket(SOCKET& sock, const char IP[], const unsigned short Port)
+{
+    WSADATA wsaData;
+    SOCKADDR_IN addrSrv;
+
+    if (!WSAStartup(MAKEWORD(1, 1), &wsaData))
+    {
+        if ((sock = socket(AF_INET, SOCK_STREAM, 0)) != INVALID_SOCKET)
+        {
+            addrSrv.sin_addr.S_un.S_addr = inet_addr(IP);
+            addrSrv.sin_family = AF_INET;
+            addrSrv.sin_port = htons(Port);
+            connect(sock, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR));
+            return true;
+        }
+    }
+    return false;
+}
+void CloseSocket(SOCKET& sock)
+{
+    closesocket(sock);
+    WSACleanup();
 }
 
 

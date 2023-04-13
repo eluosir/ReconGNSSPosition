@@ -1,4 +1,18 @@
+/****************************************************************************
+Ä¿µÄ£º    ¶¨ÒåGPS+BDS RTKÈí¼şĞèÒªµÄ³£Á¿ºÍ½á¹¹Ìå
+±àĞ´Ê±¼ä£º2022.1.10
+×÷Õß£º    Íõ¸¦ºì
+°æ±¾:     V1.0
+°æÈ¨£º    Îäºº´óÑ§²â»æÑ§Ôº
+****************************************************************************/
 #include <iostream>
+#include<stdio.h>
+#include<windows.h>
+#include<winsock.h>
+
+#pragma comment(lib,"WS2_32.lib")
+#pragma warning(disable:4996)
+
 #ifndef _GNSS_RTK_H_
 #define _GNSS_RTK_H_
 
@@ -19,17 +33,17 @@
 
 
 /* some constants about GPS satellite signal */
-#define  FG1_GPS  1575.42E6             /* L1ä¿¡å·é¢‘ç‡ */
-#define  FG2_GPS  1227.60E6             /* L2ä¿¡å·é¢‘ç‡ */
+#define  FG1_GPS  1575.42E6             /* L1ĞÅºÅÆµÂÊ */
+#define  FG2_GPS  1227.60E6             /* L2ĞÅºÅÆµÂÊ */
 #define  FG12R    (77/60.0)             /* FG1_Freq/FG2_Freq */
 #define  FG12R2   (5929/3600.0)
 #define  WL1_GPS  (C_Light/FG1_GPS)
 #define  WL2_GPS  (C_Light/FG2_GPS)
 
 /* some constants about Compass satellite signal */
-#define  FG1_BDS  1561.098E6              /* B1ä¿¡å·çš„åŸºå‡†é¢‘ç‡ */
-#define  FG2_BDS  1207.140E6              /* B2ä¿¡å·çš„åŸºå‡†é¢‘ç‡ */
-#define  FG3_BDS  1268.520E6              /* B3ä¿¡å·çš„åŸºå‡†é¢‘ç‡ */
+#define  FG1_BDS  1561.098E6              /* B1ĞÅºÅµÄ»ù×¼ÆµÂÊ */
+#define  FG2_BDS  1207.140E6              /* B2ĞÅºÅµÄ»ù×¼ÆµÂÊ */
+#define  FG3_BDS  1268.520E6              /* B3ĞÅºÅµÄ»ù×¼ÆµÂÊ */
 #define  FC12R    (FG1_BDS/FG2_BDS)       /* FG1_BDS/FG2_BDS */
 #define  FC12R2   (FC12R*FC12R)           /* FG1_BDS^2/FG2_BDS^2 */
 #define  FC13R    (FG1_BDS/FG3_BDS)       /* FG1_BDS^2/FG3_BDS^2 */
@@ -38,13 +52,13 @@
 #define  WL2_BDS  (C_Light/FG2_BDS)
 #define  WL3_BDS  (C_Light/FG3_BDS)
 
-#define GPST_BDT   14                      /* GPSæ—¶ä¸åŒ—æ–—æ—¶çš„å·®å€¼[s] */
+#define GPST_BDT   14                      /* GPSÊ±Óë±±¶·Ê±µÄ²îÖµ[s] */
 #define MAXCHANNUM 36
 #define MAXGPSNUM  32
 #define MAXBDSNUM  63
 #define MAXRAWLEN  40960
 #define MAXNOVDLEN 20*1024
-#define DELTATIME  2                      /*åŸºç«™æµåŠ¨ç«™æœ€å¤§ç›¸å·®æ—¶é—´*/
+#define DELTATIME  2                      /*»ùÕ¾Á÷¶¯Õ¾×î´óÏà²îÊ±¼ä*/
 
 #define PsrDelta   1
 #define AdrDelta   1e-3 
@@ -52,10 +66,10 @@
 #define AdrW       2*AdrDelta*AdrDelta
 constexpr auto POLYCRC32 =  0xEDB88320u /* CRC32 polynomial */;;
 
-/* å¯¼èˆªå«æ˜Ÿç³»ç»Ÿå®šä¹‰ */
+/* µ¼º½ÎÀĞÇÏµÍ³¶¨Òå */
 enum GNSSSys { UNKS=0, GPS, BDS, GLONASS, GALILEO, QZSS};
 
-struct COMMONTIME   /* é€šç”¨æ—¶é—´å®šä¹‰ */
+struct COMMONTIME   /* Í¨ÓÃÊ±¼ä¶¨Òå */
 {
     short Year;
     unsigned short Month;
@@ -75,7 +89,7 @@ struct COMMONTIME   /* é€šç”¨æ—¶é—´å®šä¹‰ */
 	}
 };
 
-struct GPSTIME              /* GPSæ—¶é—´å®šä¹‰ */
+struct GPSTIME              /* GPSÊ±¼ä¶¨Òå */
 {
     unsigned short Week;          
     double         SecOfWeek;
@@ -87,7 +101,7 @@ struct GPSTIME              /* GPSæ—¶é—´å®šä¹‰ */
     }
 };
 
-struct MJDTIME             /* ç®€åŒ–å„’ç•¥æ—¥ */
+struct MJDTIME             /* ¼ò»¯ÈåÂÔÈÕ */
 {
     int Days;             
     double FracDay;
@@ -99,7 +113,7 @@ struct MJDTIME             /* ç®€åŒ–å„’ç•¥æ—¥ */
     }
 };
 
-// GPS+BDSå¹¿æ’­æ˜Ÿå†
+// GPS+BDS¹ã²¥ĞÇÀú
 struct GPSEPHREC
 {
 	unsigned short PRN;
@@ -122,7 +136,7 @@ struct GPSEPHREC
 	}
 };
 
-/*  æ¯é¢—å«æ˜Ÿçš„è§‚æµ‹æ•°æ®å®šä¹‰  */
+/*  Ã¿¿ÅÎÀĞÇµÄ¹Û²âÊı¾İ¶¨Òå  */
 struct SATOBS
 {
     short    Prn;
@@ -147,7 +161,7 @@ struct SATOBS
 
 struct MWGF
 {
-	short Prn;//å«æ˜Ÿå·
+	short Prn;//ÎÀĞÇºÅ
 	GNSSSys Sys;
 	double MW, GF, PIF;
 
@@ -161,7 +175,7 @@ struct MWGF
 	}
 };
 
-/* æ¯é¢—å«æ˜Ÿä½ç½®ã€é€Ÿåº¦å’Œé’Ÿå·®ç­‰çš„ä¸­é—´è®¡ç®—ç»“æœ */
+/* Ã¿¿ÅÎÀĞÇÎ»ÖÃ¡¢ËÙ¶ÈºÍÖÓ²îµÈµÄÖĞ¼ä¼ÆËã½á¹û */
 struct SATMIDRES
 {
     double SatPos[3],SatVel[3];
@@ -169,7 +183,7 @@ struct SATMIDRES
     double Elevation, Azimuth;
     double TropCorr;
     double Tgd1, Tgd2;
-    bool Valid;  //false=æ²¡æœ‰æ˜Ÿå†æˆ–æ˜Ÿå†è¿‡æœŸ,true-è®¡ç®—æˆåŠŸ
+    bool Valid;  //false=Ã»ÓĞĞÇÀú»òĞÇÀú¹ıÆÚ,true-¼ÆËã³É¹¦
  
     SATMIDRES()
     {
@@ -182,15 +196,15 @@ struct SATMIDRES
     }
 };
 
-/*  æ¯ä¸ªå†å…ƒçš„è§‚æµ‹æ•°æ®å®šä¹‰  */
+/*  Ã¿¸öÀúÔªµÄ¹Û²âÊı¾İ¶¨Òå  */
 struct EPOCHOBS
 {
     GPSTIME    Time;
     short      SatNum;
     SATOBS     SatObs[MAXCHANNUM];
-	SATMIDRES  SatPVT[MAXCHANNUM]; // å«æ˜Ÿä½ç½®ç­‰è®¡ç®—ç»“æœï¼Œæ•°ç»„ç´¢å¼•ä¸SatObsç›¸åŒ
-	MWGF       ComObs[MAXCHANNUM];  // å½“å‰å†å…ƒçš„ç»„åˆè§‚æµ‹å€¼ï¼Œæ•°ç»„ç´¢å¼•ä¸SatObsç›¸åŒ
-	double     Pos[3];      // ä¿å­˜åŸºç«™æˆ–NovAtelæ¥æ”¶æœºå®šä½ç»“æœ
+	SATMIDRES  SatPVT[MAXCHANNUM]; // ÎÀĞÇÎ»ÖÃµÈ¼ÆËã½á¹û£¬Êı×éË÷ÒıÓëSatObsÏàÍ¬
+	MWGF       ComObs[MAXCHANNUM];  // µ±Ç°ÀúÔªµÄ×éºÏ¹Û²âÖµ£¬Êı×éË÷ÒıÓëSatObsÏàÍ¬
+	double     Pos[3];      // ±£´æ»ùÕ¾»òNovAtel½ÓÊÕ»ú¶¨Î»½á¹û
     
     EPOCHOBS()
     {
@@ -199,14 +213,14 @@ struct EPOCHOBS
     }
 };
 
-/*  æ¯é¢—å«æ˜Ÿçš„å•å·®è§‚æµ‹æ•°æ®å®šä¹‰  */
+/*  Ã¿¿ÅÎÀĞÇµÄµ¥²î¹Û²âÊı¾İ¶¨Òå  */
 struct SDSATOBS
 {
 	short    Prn;
 	GNSSSys  System;
 	bool     Valid;
-	double   dP[2], dL[2];  // Pï¼ŒLåŒé¢‘å•å·®,ä¼ªè·ï¼Œç›¸ä½ï¼Œä¼ªè·å•ä½ä¸ºç±³ï¼Œç›¸ä½å•ä½ä¸ºå‘¨
-	short    nBas, nRov;    // å­˜å‚¨å•å·®è§‚æµ‹å€¼å¯¹åº”çš„åŸºå‡†å’ŒæµåŠ¨ç«™çš„æ•°å€¼ç´¢å¼•å·
+	double   dP[2], dL[2];  // P£¬LË«Æµµ¥²î,Î±¾à£¬ÏàÎ»£¬Î±¾àµ¥Î»ÎªÃ×£¬ÏàÎ»µ¥Î»ÎªÖÜ
+	short    nBas, nRov;    // ´æ´¢µ¥²î¹Û²âÖµ¶ÔÓ¦µÄ»ù×¼ºÍÁ÷¶¯Õ¾µÄÊıÖµË÷ÒıºÅ
 
 	SDSATOBS()
 	{
@@ -217,7 +231,7 @@ struct SDSATOBS
 	}
 };
 
-/*  æ¯ä¸ªå†å…ƒçš„å•å·®è§‚æµ‹æ•°æ®å®šä¹‰  */
+/*  Ã¿¸öÀúÔªµÄµ¥²î¹Û²âÊı¾İ¶¨Òå  */
 struct SDEPOCHOBS
 {
 	GPSTIME    Time;
@@ -231,26 +245,26 @@ struct SDEPOCHOBS
 	}
 };
 
-/*  åŒå·®ç›¸å…³çš„æ•°æ®å®šä¹‰  */
+/*  Ë«²îÏà¹ØµÄÊı¾İ¶¨Òå  */
 struct DDCOBS
 {
-	int RefPrn[2], RefPos[2];         // å‚è€ƒæ˜Ÿå«æ˜Ÿå·ä¸å­˜å‚¨ä½ç½®ï¼Œ0=GPS; 1=BDS
-	int Sats, DDSatNum[2];            // å¾…ä¼°çš„åŒå·®æ¨¡ç³Šåº¦æ•°é‡ï¼Œ0=GPS; 1=BDS
-	double FixedAmb[MAXCHANNUM * 4];  // åŒ…æ‹¬åŒé¢‘æœ€ä¼˜è§£[0,AmbNum]å’Œæ¬¡ä¼˜è§£[AmbNum,2*AmbNum]
-	double ResAmb[2], Ratio;          // LAMBDAæµ®ç‚¹è§£ä¸­çš„æ¨¡ç³Šåº¦æ®‹å·®
-	float  FixRMS[2];                 // å›ºå®šè§£å®šä½ä¸­rmsè¯¯å·®
-	double dPos[3];                   // åŸºçº¿å‘é‡
-	bool bFixed;                      // trueä¸ºå›ºå®šï¼Œfalseä¸ºæœªå›ºå®š
+	int RefPrn[2], RefPos[2];         // ²Î¿¼ĞÇÎÀĞÇºÅÓë´æ´¢Î»ÖÃ£¬0=GPS; 1=BDS
+	int Sats, DDSatNum[2];            // ´ı¹ÀµÄË«²îÄ£ºı¶ÈÊıÁ¿£¬0=GPS; 1=BDS
+	double FixedAmb[MAXCHANNUM * 4];  // °üÀ¨Ë«Æµ×îÓÅ½â[0,AmbNum]ºÍ´ÎÓÅ½â[AmbNum,2*AmbNum]
+	double ResAmb[2], Ratio;          // LAMBDA¸¡µã½âÖĞµÄÄ£ºı¶È²Ğ²î
+	float  FixRMS[2];                 // ¹Ì¶¨½â¶¨Î»ÖĞrmsÎó²î
+	double dPos[3];                   // »ùÏßÏòÁ¿
+	bool bFixed;                      // trueÎª¹Ì¶¨£¬falseÎªÎ´¹Ì¶¨
 
 	DDCOBS()
 	{
 		int i;
 		for (i = 0; i<2; i++) 
 		{
-			DDSatNum[i] = 0;    // å„å«æ˜Ÿç³»ç»Ÿçš„åŒå·®æ•°é‡
+			DDSatNum[i] = 0;    // ¸÷ÎÀĞÇÏµÍ³µÄË«²îÊıÁ¿
 			RefPos[i] = RefPrn[i] = -1;
 		}
-		Sats = 0;              // åŒå·®å«æ˜Ÿæ€»æ•°
+		Sats = 0;              // Ë«²îÎÀĞÇ×ÜÊı
 		dPos[0] = dPos[1] = dPos[2] = 0.0;
 		ResAmb[0] = ResAmb[1] = FixRMS[0] = FixRMS[1] = Ratio = 0.0;
 		bFixed = false;
@@ -261,18 +275,18 @@ struct DDCOBS
 	}
 };
 
-/* æ¯ä¸ªå†å…ƒå•ç‚¹å®šä½å’Œæµ‹é€Ÿçš„ç»“æœåŠå…¶ç²¾åº¦æŒ‡æ ‡ */
+/* Ã¿¸öÀúÔªµ¥µã¶¨Î»ºÍ²âËÙµÄ½á¹û¼°Æä¾«¶ÈÖ¸±ê */
 struct PPRESULT
 {
     GPSTIME Time;
     double Position[3];
     double Velocity[3];
-    double RcvClkOft[2];               /* 0 ä¸ºGPSé’Ÿå·®; 1=BDSé’Ÿå·® */
+    double RcvClkOft[2];               /* 0 ÎªGPSÖÓ²î; 1=BDSÖÓ²î */
     double RcvClkSft;
-    double PDOP, SigmaPos, SigmaVel;  // ç²¾åº¦æŒ‡æ ‡
-	short  GPSSatNum, BDSSatNum;      /* å•ç‚¹å®šä½ä½¿ç”¨çš„GPSå«æ˜Ÿæ•° */
-	short  AllSatNum;                /* è§‚æµ‹å†å…ƒçš„æ‰€æœ‰å«æ˜Ÿæ•°   */
-	bool   IsSuccess;                /* å•ç‚¹å®šä½æ˜¯å¦æˆåŠŸ, 1ä¸ºæˆåŠŸ, 0ä¸ºå¤±è´¥ */
+    double PDOP, SigmaPos, SigmaVel;  // ¾«¶ÈÖ¸±ê
+	short  GPSSatNum, BDSSatNum;      /* µ¥µã¶¨Î»Ê¹ÓÃµÄGPSÎÀĞÇÊı */
+	short  AllSatNum;                /* ¹Û²âÀúÔªµÄËùÓĞÎÀĞÇÊı   */
+	bool   IsSuccess;                /* µ¥µã¶¨Î»ÊÇ·ñ³É¹¦, 1Îª³É¹¦, 0ÎªÊ§°Ü */
 
 	PPRESULT()
 	{
@@ -284,7 +298,7 @@ struct PPRESULT
 	}
 };
 
-/*  RTKå®šä½çš„æ•°æ®å®šä¹‰  */
+/*  RTK¶¨Î»µÄÊı¾İ¶¨Òå  */
 struct RAWDAT {
 	EPOCHOBS BasEpk;
 	EPOCHOBS RovEpk;
@@ -298,11 +312,11 @@ struct RTKEKF
 	GPSTIME Time;
 	double X[3 + MAXCHANNUM * 2], P[(3 + MAXCHANNUM * 2)*(3 + MAXCHANNUM * 2)];
 	int Index[MAXCHANNUM], nSats, nPos[MAXCHANNUM];
-	int FixAmb[MAXCHANNUM];          // æ—¶é—´æ›´æ–°åä¸Šä¸ªå†å…ƒå·²ç»å›ºå®šå¹¶ä¼ é€’çš„æ¨¡ç³Šåº¦ï¼Œ 1=å·²å›ºå®šï¼Œ-1=æœªå›ºå®šæˆ–æœ‰å‘¨è·³
-	DDCOBS DDObs, CurDDObs;           // ä¸Šä¸€ä¸ªå†å…ƒå’Œå½“å‰å†å…ƒçš„åŒå·®è§‚æµ‹å€¼ä¿¡æ¯
-	SDEPOCHOBS SDObs;                 // ä¸Šä¸€ä¸ªå†å…ƒçš„å•å·®è§‚æµ‹å€¼
-	double X0[3 + MAXCHANNUM * 2], P0[(3 + MAXCHANNUM * 2)*(3 + MAXCHANNUM * 2)];  // çŠ¶æ€å¤‡ä»½
-	bool IsInit;                      // æ»¤æ³¢æ˜¯å¦åˆå§‹åŒ–
+	int FixAmb[MAXCHANNUM];          // Ê±¼ä¸üĞÂºóÉÏ¸öÀúÔªÒÑ¾­¹Ì¶¨²¢´«µİµÄÄ£ºı¶È£¬ 1=ÒÑ¹Ì¶¨£¬-1=Î´¹Ì¶¨»òÓĞÖÜÌø
+	DDCOBS DDObs, CurDDObs;           // ÉÏÒ»¸öÀúÔªºÍµ±Ç°ÀúÔªµÄË«²î¹Û²âÖµĞÅÏ¢
+	SDEPOCHOBS SDObs;                 // ÉÏÒ»¸öÀúÔªµÄµ¥²î¹Û²âÖµ
+	double X0[3 + MAXCHANNUM * 2], P0[(3 + MAXCHANNUM * 2)*(3 + MAXCHANNUM * 2)];  // ×´Ì¬±¸·İ
+	bool IsInit;                      // ÂË²¨ÊÇ·ñ³õÊ¼»¯
 
 	RTKEKF() {
 		IsInit = false;
@@ -315,18 +329,18 @@ struct RTKEKF
 	}
 };
 
-struct ROVERCFGINFO   // é…ç½®ä¿¡æ¯
+struct ROVERCFGINFO   // ÅäÖÃĞÅÏ¢
 {
 	short  IsFileData, RTKProcMode;      // 1=FILE, 0=COM, 1=EKF, 2=LSQ
-	int    RovPort, RovBaud;             // COMç«¯å£è®¾ç½®
+	int    RovPort, RovBaud;             // COM¶Ë¿ÚÉèÖÃ
 	char   BasNetIP[20], RovNetIP[20];   // ip address
 	short  BasNetPort, RovNetPort;       // port
-	double CodeNoise, CPNoise;           // ä¼ªè·å™ªå£°
-    double ElevThreshold;                // é«˜åº¦è§’é˜ˆå€¼
-	double RatioThres;                   // Ratioæ£€éªŒé˜ˆå€¼
+	double CodeNoise, CPNoise;           // Î±¾àÔëÉù
+    double ElevThreshold;                // ¸ß¶È½ÇãĞÖµ
+	double RatioThres;                   // Ratio¼ìÑéãĞÖµ
     
-	char  BasObsDatFile[256], RovObsDatFile[256];    //  è§‚æµ‹æ•°æ®çš„æ–‡ä»¶å
-	char  ResFile[256];            //  ç»“æœæ•°æ®æ–‡ä»¶å
+	char  BasObsDatFile[256], RovObsDatFile[256];    //  ¹Û²âÊı¾İµÄÎÄ¼şÃû
+	char  ResFile[256];            //  ½á¹ûÊı¾İÎÄ¼şÃû
 
     
     ROVERCFGINFO()
@@ -340,7 +354,7 @@ struct ROVERCFGINFO   // é…ç½®ä¿¡æ¯
 
 bool ReadSATODSConfigInfo( const char FName[], ROVERCFGINFO& cfg );
 
-/* é€šç”¨æ—¶,GPSæ—¶å’Œç®€åŒ–å„’ç•¥æ—¥ä¹‹é—´çš„ç›¸äº’è½¬æ¢å‡½æ•°*/
+/* Í¨ÓÃÊ±,GPSÊ±ºÍ¼ò»¯ÈåÂÔÈÕÖ®¼äµÄÏà»¥×ª»»º¯Êı*/
 void CommonTimeToMJDTime( const COMMONTIME* CT, MJDTIME* MJDT);
 void MJDTimeToCommonTime( const MJDTIME* MJDT, COMMONTIME* CT );
 void GPSTimeToMJDTime( const GPSTIME* GT, MJDTIME* MJDT );
@@ -349,14 +363,14 @@ void CommonTimeToGPSTime ( const COMMONTIME* CT, GPSTIME* GT );
 void GPSTimeToCommonTime ( const GPSTIME* GT, COMMONTIME* CT );
 double GetDiffTime( const GPSTIME* GT2, const GPSTIME* GT1 );
 
-/* ç©ºé—´ç›´è§’åæ ‡,å¤§åœ°åæ ‡çš„ç›¸äº’è½¬æ¢å‡½æ•° */
+/* ¿Õ¼äÖ±½Ç×ø±ê,´óµØ×ø±êµÄÏà»¥×ª»»º¯Êı */
 void XYZToBLH( const double xyz[3], double blh[3], const double R, const double F );
 void BLHToXYZ( const double BLH[3], double XYZ[3], const double R, const double F );
 void BLHToNEUMat(const double Blh[], double Mat[]);
-void CompSatElAz(const double Xr[], const double Xs[], double *Elev, double *Azim); //å«æ˜Ÿé«˜åº¦è§’æ–¹ä½è§’è®¡ç®—å‡½æ•°
-void Comp_dEnu(const double X0[], const double Xr[], double dNeu[]);  //å®šä½è¯¯å·®è®¡ç®—å‡½æ•°
+void CompSatElAz(const double Xr[], const double Xs[], double *Elev, double *Azim); //ÎÀĞÇ¸ß¶È½Ç·½Î»½Ç¼ÆËãº¯Êı
+void Comp_dEnu(const double X0[], const double Xr[], double dNeu[]);  //¶¨Î»Îó²î¼ÆËãº¯Êı
 
-/*çŸ©é˜µè¿ç®—*/
+/*¾ØÕóÔËËã*/
 bool matrix_add(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[], double c[]);
 bool matrix_minus(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[], double c[]);
 bool matrix_multiply(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[], double c[]);
@@ -365,36 +379,41 @@ bool matrix_Inv(int n, const double a[], double b[]);
 double vector_dot(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[]);
 bool vector_cross(const int row1, const int col1, const int row2, const int col2, const double a[], const double b[], double c[]);
 
-// NovAtel OEM7æ•°æ®è§£ç å‡½æ•°
+// NovAtel OEM7Êı¾İ½âÂëº¯Êı
 int DecodeNovOem7Dat(unsigned char Buff[], int& Len, EPOCHOBS* obs, GPSEPHREC geph[], GPSEPHREC beph[]);
+int DecodeNovOem7Soc(unsigned char Buff[], int& Len, EPOCHOBS* obs, GPSEPHREC geph[], GPSEPHREC beph[]);
 int decode_rangeb_oem7(unsigned char *buff, EPOCHOBS* obs);
 int decode_gpsephem(unsigned char* buff, GPSEPHREC* eph);
 int decode_bdsephem(unsigned char* buff, GPSEPHREC* eph);
 //int decode_psrpos(unsigned char* buff, POSRES* pos);
 unsigned int crc32(const unsigned char *buff, int len);
 int decode(EPOCHOBS* Epoch, FILE* stream, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem);
-
-// å¹¿æ’­æ˜Ÿå†
+int decode(EPOCHOBS* Epoch, SOCKET& Sock, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem);
+// ¹ã²¥ĞÇÀú
 bool CompSatClkOff( const int Prn, const GNSSSys Sys, const GPSTIME* t, GPSEPHREC* GPSEph, GPSEPHREC* BDSEph, SATMIDRES* Mid);
 bool CompGPSSatPVT( const int Prn, const GPSTIME* t, const GPSEPHREC* Eph, SATMIDRES* Mid);
 bool CompBDSSatPVT( const int Prn, const GPSTIME* t, const GPSEPHREC* Eph, SATMIDRES* Mid);
 void ComputeGPSSatOrbitAtSignalTrans(const EPOCHOBS* Epk, GPSEPHREC* GPSEph, GPSEPHREC* BDSEph, double RcvPos[], SATMIDRES* MidRes);
-int decode(EPOCHOBS* Epoch, FILE* stream, RAWDAT* Raw, unsigned char Buff[], int& LenRead, int& LenRem);
+
 double hopfield(double hgt,double elev);
 
 // SPP & SPV
-void DetectOutlier(EPOCHOBS* Obs);  // çº¿æ€§ç»„åˆæ¢æµ‹ç²—å·®
+void DetectOutlier(EPOCHOBS* Obs);  // ÏßĞÔ×éºÏÌ½²â´Ö²î
 bool SPP(EPOCHOBS* Epoch, RAWDAT* Raw, PPRESULT* Result);
 void SPV(EPOCHOBS* Epoch, PPRESULT* Result );
 
 // RTK
 //int GetSynObs(FILE* FBas, FILE* FRov, SOCKET& BasSock, CSerial& RovCom, SOCKET& RovSock, RAWDAT* Raw);
 int GetSynObs(FILE* FBas, FILE* FRov, RAWDAT* Raw);
+int GetSynObs(SOCKET& BasSock, SOCKET& RovSock, RAWDAT* Raw);
+
 void FormSDEpochObs(const EPOCHOBS *EpkA, const EPOCHOBS *EpkB, SDEPOCHOBS *SDObs);
 void DetectCycleSlip(SDEPOCHOBS* Obs);
 void DetRefSat(const EPOCHOBS* EpkA, const EPOCHOBS* EpkB, SDEPOCHOBS* SDObs, DDCOBS* DDObs);
-bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov);
 
+//0=ok,1=false
+bool RTKFloat(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov);
+void RTKFixed(RAWDAT* Raw, PPRESULT* Base, PPRESULT* Rov);
 
 
 // lambda
@@ -404,24 +423,26 @@ void perm(int n, double *L, double *D, int j, double del, double *Z);
 void reduction(int n, double *L, double *D, double *Z);
 int search(int n, int m, const double *L, const double *D, const double *zs, double *zn, double *s);
 int lambda(int n, int m, const double *a, const double *Q, double *F, double *s);
-/*
-// Socketç½‘ç»œ
+
+//// SocketÍøÂç
 bool OpenSocket(SOCKET& sock, const char IP[], const unsigned short Port);
-void CloseSocket(SOCKET& sock);*/
+void CloseSocket(SOCKET& sock);
 
 /*
-Prnæ£€ç´¢ï¼Œæ ¹æ®è¾“å…¥å«æ˜ŸPrnï¼Œåœ¨è§‚æµ‹å€¼ä¸­æ£€ç´¢å¯¹åº”å«æ˜Ÿï¼Œå–å¾—å¯¹åº”å«æ˜Ÿè§‚æµ‹å€¼ä¸­çš„ç´¢å¼•
-å‚æ•°ï¼š
-      Prnï¼š                  éœ€æ£€ç´¢çš„Prn
-      EPOCHOBS/SDEPOCHOBSï¼š  åœ¨å¯¹åº”è§‚æµ‹å€¼/å•å·®è§‚æµ‹å€¼å†…æœç´¢å¯¹åº”å«æ˜Ÿ
-	  Sysï¼š                  è¯¥å«æ˜Ÿæ‰€å±ç³»ç»Ÿ(GPS=1,BDS=2)
-	  EpochIndex/SDObsIndexï¼šæ£€ç´¢å¾—åˆ°çš„å¯¹åº”å«æ˜Ÿåœ¨å¯¹åº”è§‚æµ‹å€¼æ•°ç»„å†…ç´¢å¼•
-è¿”å›å€¼ï¼š
-      true  = å«æ˜Ÿæ£€ç´¢æˆåŠŸ
-	  false = è§‚æµ‹å€¼åˆ—è¡¨ä¸­ä¸å«è¯¥å«æ˜Ÿï¼Œæ£€ç´¢å¤±è´¥
+Prn¼ìË÷£¬¸ù¾İÊäÈëÎÀĞÇPrn£¬ÔÚ¹Û²âÖµÖĞ¼ìË÷¶ÔÓ¦ÎÀĞÇ£¬È¡µÃ¶ÔÓ¦ÎÀĞÇ¹Û²âÖµÖĞµÄË÷Òı
+²ÎÊı£º
+      Prn£º                  Ğè¼ìË÷µÄPrn
+      EPOCHOBS/SDEPOCHOBS£º  ÔÚ¶ÔÓ¦¹Û²âÖµ/µ¥²î¹Û²âÖµÄÚËÑË÷¶ÔÓ¦ÎÀĞÇ
+	  Sys£º                  ¸ÃÎÀĞÇËùÊôÏµÍ³(GPS=1,BDS=2)
+	  EpochIndex/SDObsIndex£º¼ìË÷µÃµ½µÄ¶ÔÓ¦ÎÀĞÇÔÚ¶ÔÓ¦¹Û²âÖµÊı×éÄÚË÷Òı
+·µ»ØÖµ£º
+      true  = ÎÀĞÇ¼ìË÷³É¹¦
+	  false = ¹Û²âÖµÁĞ±íÖĞ²»º¬¸ÃÎÀĞÇ£¬¼ìË÷Ê§°Ü
 */
 bool PrnSearching(const short Prn, const EPOCHOBS* Epoch, const int Sys, int* EpochIndex);
 bool PrnSearching(const short Prn, const SDEPOCHOBS* SDObs, const int Sys, int* SDObsIndex);
-//Test
+
 void MatrixDisplay(int m, int n, double Mat[]);
+
+void SaveSocketData(SOCKET Soc,FILE* Dat);
 #endif
